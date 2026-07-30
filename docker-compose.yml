@@ -6,7 +6,9 @@ services:
       POSTGRES_PASSWORD: lds_password
       POSTGRES_DB: lending
     ports:
-      - '5432:5432'
+      # Host port 5433 to avoid colliding with a Postgres already running on
+      # the default port. Inside the compose network it is still 5432.
+      - '5433:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -41,7 +43,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    command: sh -c "npx prisma migrate deploy && node dist/server.js"
+    command: sh -c "node dist/db/migrate.js && node dist/server.js"
     environment:
       NODE_ENV: production
       PORT: 4000
