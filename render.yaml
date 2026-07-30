@@ -1,0 +1,88 @@
+# Render Blueprint.
+#
+# Provisions the API, the decision worker, Postgres and Redis in one apply.
+# The two services run the same image with different start commands, so their
+# code cannot drift apart.
+#
+# MongoDB is not here: Render has no managed MongoDB. Set MONGO_URL to an
+# Atlas connection string in the dashboard after the first apply. The audit
+# trail is best-effort, so the API starts and serves decisions without it.
+
+services:
+  - type: web
+    name: lending-api
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci && npm run build --workspace @lds/shared && npm run build --workspace @lds/api
+    # Migrations run before the server binds, so an instance never starts
+    # against a schema that does not match its code.
+    startCommand: cd apps/api && node dist/db/migrate.js && node dist/server.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lending-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: lending-redis
+          property: connectionString
+      # Set manually: MongoDB Atlas connection string.
+      - key: MONGO_URL
+        sync: false
+      # Set manually to the deployed frontend origin, e.g.
+      # https://lending-decision-system.vercel.app
+      - key: CORS_ORIGIN
+        sync: false
+      - key: DECISION_MODE
+        value: queue
+      # No artificial delay in production; it exists only to make the polling
+      # flow visible during a local demo.
+      - key: DECISION_PROCESSING_DELAY_MS
+        value: '0'
+
+  - type: worker
+    name: lending-worker
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci && npm run build --workspace @lds/shared && npm run build --workspace @lds/api
+    startCommand: cd apps/api && node dist/worker-entry.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lending-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: lending-redis
+          property: connectionString
+      - key: MONGO_URL
+        sync: false
+      - key: DECISION_MODE
+        value: queue
+      - key: DECISION_PROCESSING_DELAY_MS
+        value: '0'
+
+  - type: redis
+    name: lending-redis
+    plan: free
+    region: singapore
+    # BullMQ needs keys to survive memory pressure; evicting a queued job
+    # would silently lose an application.
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
+databases:
+  - name: lending-postgres
+    plan: free
+    region: singapore
+    databaseName: lending
+    user: lds
