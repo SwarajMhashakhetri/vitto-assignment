@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>MSME Lending Decision System — Design Write-up</title>
+    <style>
+      @page {
+        size: A4;
+        margin: 12mm 13mm;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: 'Charter', 'Georgia', 'Times New Roman', serif;
+        font-size: 8.9pt;
+        line-height: 1.33;
+        color: #1a1a1a;
+      }
+
+      h1 {
+        font-size: 14.5pt;
+        margin: 0 0 1pt;
+        letter-spacing: -0.2pt;
+      }
+
+      .subtitle {
+        font-size: 8.6pt;
+        color: #555;
+        margin: 0 0 10pt;
+        padding-bottom: 6pt;
+        border-bottom: 1.2pt solid #1a1a1a;
+      }
+
+      h2 {
+        font-size: 9.8pt;
+        margin: 8pt 0 3pt;
+        padding-bottom: 1.5pt;
+        border-bottom: 0.5pt solid #bbb;
+        letter-spacing: -0.1pt;
+      }
+
+      h3 {
+        font-size: 8.9pt;
+        margin: 6pt 0 1.5pt;
+        font-style: italic;
+        font-weight: 600;
+      }
+
+      p {
+        margin: 0 0 4pt;
+        text-align: justify;
+      }
+
+      ul {
+        margin: 0 0 5pt;
+        padding-left: 13pt;
+      }
+
+      li {
+        margin-bottom: 1.8pt;
+      }
+
+      code {
+        font-family: 'SF Mono', 'Consolas', monospace;
+        font-size: 8.4pt;
+        background: #f0f0f0;
+        padding: 0 2pt;
+        border-radius: 2pt;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 4pt 0 6pt;
+        font-size: 8pt;
+      }
+
+      th,
+      td {
+        border: 0.4pt solid #ccc;
+        padding: 3pt 5pt;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: #f2f2f2;
+        font-weight: 600;
+      }
+
+      .lede {
+        font-size: 9.1pt;
+        border-left: 2.2pt solid #1a1a1a;
+        padding-left: 8pt;
+        margin-bottom: 9pt;
+      }
+
+      .callout {
+        background: #f7f7f5;
+        border: 0.4pt solid #ddd;
+        border-left: 2.2pt solid #444;
+        padding: 5pt 8pt;
+        margin: 5pt 0 7pt;
+      }
+
+      .callout p:last-child {
+        margin-bottom: 0;
+      }
+
+      .cols {
+        column-count: 2;
+        column-gap: 13pt;
+      }
+
+      .cols > * {
+        break-inside: avoid;
+      }
+
+      .page-break {
+        break-before: page;
+      }
+
+      .diagram {
+        font-family: 'SF Mono', 'Consolas', monospace;
+        font-size: 7pt;
+        line-height: 1.3;
+        white-space: pre;
+        background: #f7f7f5;
+        border: 0.4pt solid #ddd;
+        padding: 6pt 8pt;
+        margin: 4pt 0 7pt;
+      }
+
+      strong {
+        font-weight: 650;
+      }
+
+      footer {
+        margin-top: 10pt;
+        padding-top: 5pt;
+        border-top: 0.5pt solid #bbb;
+        font-size: 7.8pt;
+        color: #666;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>MSME Lending Decision System</h1>
+    <p class="subtitle">Architecture, trade-offs, and what I would change with more time</p>
+
+    <p class="lede">
+      A lending system's hard problem is not computing a score. It is being able to
+      <em>defend</em> one — to an applicant who was declined, to a credit officer retuning the
+      policy, and to a regulator asking why this file was approved eighteen months ago. Nearly
+      every decision below follows from that.
+    </p>
+
+    <h2>1. Architecture</h2>
+
+    <div class="diagram">
+Browser (React SPA)
+  │  POST /businesses → POST /applications → POST /applications/:id/decision → 202
+  │  then polls GET /applications/:id/decision until the status settles
+  ▼
+Express API ─────────────────────────► Postgres     system of record
+  │  requestId → CORS → validate(Zod) → route → errorHandler
+  │
+  └── BullMQ ──► Decision worker ──► engine (pure) ──► Postgres
+                       │
+                       └───────────► MongoDB        append-only audit trail</div>
+
+    <h3>The engine is a pure function</h3>
+    <p>
+      <code>evaluate(input)</code> performs no I/O — no database, no clock, no environment. Three
+      things follow. The entire credit policy is testable without infrastructure, which is why 73
+      of the 131 tests run in 58ms and probe <em>both sides</em> of every threshold boundary. Any
+      historical decision can be reproduced exactly from its stored inputs. And the same function
+      serves the HTTP layer, the queue worker, and the binary search that finds the largest
+      approvable amount, unadapted.
+    </p>
+
+    <h3>Hard rules are separated from the scorecard</h3>
+    <p>
+      Hard rules — a request above 36× revenue, an instalment exceeding all income, revenue below
+      the lending floor — are checked first and short-circuit scoring entirely. The separation is
+      the point: a scorecard expresses <em>how much worse does this make the file</em>, a hard rule
+      expresses <em>this file is not lendable, full stop</em>. Collapsing them into one weighted sum
+      is how scorecards approve applications nobody intended to, because enough small positives
+      outvoted one disqualifying fact. A test asserts an otherwise perfect application still fails
+      on a hard rule.
+    </p>
+
+    <h3>Every threshold lives in one file</h3>
+    <p>
+      <code>config/scoring.ts</code> holds every number the engine uses, each with its reasoning.
+      Retuning never means reading business logic. Decisions carry an <code>engineVersion</code>, so
+      when those numbers change, past decisions stay interpretable.
+    </p>
+
+    <h2>2. Trade-offs</h2>
+
+    <h3>Validation errors versus credit rejections</h3>
+    <div class="callout">
+      <p><strong>Malformed input is a client error. An unaffordable loan is a credit decision.</strong></p>
+      <p>
+        The brief's example — ₹10L monthly revenue against a ₹5Cr request — is schema-valid. So it
+        returns <code>200</code> with a <code>REJECTED</code> decision and
+        <code>DATA_INCONSISTENCY</code>, not a <code>422</code>.
+      </p>
+    </div>
+    <p>
+      Returning <code>422</code> fails twice over: it tells the client it sent a bad request when it
+      sent a well-formed one, and the rejection never becomes a decision — no score, no reason
+      codes, no audit record, nothing to explain to the applicant or a regulator. An integration
+      test asserts the status code so this cannot regress.
+    </p>
+
+    <h3>Asynchronous decisions for a synchronous computation</h3>
+    <p>
+      The engine is pure arithmetic and could return inline. It is a queued BullMQ job because of
+      what it becomes: a production engine calls a bureau, pulls GST filings and parses bank
+      statements, any of which takes seconds and can fail and need retrying. Building the boundary
+      now means those slot in without breaking a contract clients depend on — and retrofitting an
+      async boundary onto a synchronous API means breaking every consumer. The worker is its own
+      process, so a slow evaluation cannot consume the API's event loop.
+    </p>
+
+    <h3>Two databases</h3>
+    <p>
+      Postgres is the system of record: <code>business → application → decision → reasons</code> is
+      a real relational chain with referential integrity and money needing exact arithmetic. Reason
+      codes are a normalised child table rather than JSONB so they stay queryable — <em>"how many
+      declines cited HIGH_EMI_BURDEN this month?"</em> is a question credit teams ask. MongoDB holds
+      an append-only audit stream whose documents vary by event type and are read only by
+      application id or time range. Being straight about it: <strong>at this scale one Postgres with
+      a JSONB column would do</strong>, with one fewer service to operate. The split suits the shape
+      of the data and the brief specified both, but it is not yet load-bearing.
+    </p>
+
+    <h3>Audit writes cannot fail a request</h3>
+    <p>
+      Audit writes are fire-and-forget and swallow their errors — a borrower should not be denied a
+      decision because a log store is unreachable. That makes the trail best-effort rather than
+      guaranteed. A system under a retention obligation would invert it: write the audit record
+      inside the decision transaction and fail the request if it could not persist.
+    </p>
+
+    <h3>Drizzle instead of Prisma</h3>
+    <p>
+      Prisma ships no query-engine binary for <code>linux-nixos</code>, this project's development
+      platform, so it cannot generate a client there at all. Its <code>queryCompiler</code> preview
+      removes the query engine but migrations still need the schema engine, and pointing at a
+      <code>/nix/store</code> path would hard-code an absolute path that breaks for anyone else
+      cloning the repo. Drizzle is pure TypeScript, so it builds identically on a laptop and in a
+      container, and drops the engine download from the image entirely.
+    </p>
+
+    <h3>One validation schema, two consumers</h3>
+    <p>
+      The Zod schemas live in a shared package imported by both the React form and the Express
+      middleware, so the client cannot accept what the server rejects. The EMI function is shared
+      for the same reason: the instalment shown live on the form is computed by the same code the
+      engine scores against, so the number on screen is provably the number assessed.
+    </p>
+
+    <h3>Smaller calls</h3>
+    <ul>
+      <li>
+        <strong>Every failing field returns at once, with one message each.</strong> Chained
+        refinements would report three complaints for a single typo.
+      </li>
+      <li>
+        <strong>Duplicate PAN returns 409 with the existing id</strong> rather than overwriting. The
+        client updates that profile — the decision must be scored against the revenue submitted now,
+        not one left from a prior application.
+      </li>
+      <li>
+        <strong>The decision endpoint is idempotent</strong>, so a retry after a dropped connection
+        cannot produce a second, different decision.
+      </li>
+      <li>
+        <strong>Liveness and readiness are separate</strong>, so a database blip cannot get a
+        healthy container killed and restarted into the same blip.
+      </li>
+    </ul>
+
+    <h2>3. Where this is weakest</h2>
+    <p>
+      Thresholds are reasoned from published Indian MSME lending practice, not calibrated against
+      observed defaults — unavoidable without a portfolio, but it makes every number a hypothesis.
+      Three gaps matter more than the rest:
+    </p>
+    <ul>
+      <li>
+        <strong>Revenue is unverified.</strong> Self-reported, with no bank-statement analysis or
+        GST cross-check. The largest gap between this and a real system: the most important input is
+        the one nobody checked.
+      </li>
+      <li>
+        <strong>Revenue is scored, not profit.</strong> A retailer on 8% net margin and a services
+        firm on 40% are treated identically by the affordability factor. One extra form field would
+        improve the scorecard more than any refinement of the existing thresholds.
+      </li>
+      <li>
+        <strong>Existing obligations are invisible.</strong> True FOIR counts all current debt
+        service; this sees only the loan applied for, so it overstates affordability for anyone
+        already carrying debt.
+      </li>
+    </ul>
+    <p>
+      The sector factor is a placeholder, capped at ±20 — a twentieth of the affordability factor's
+      spread — precisely so it can nudge a borderline file but never decide one on a guess.
+    </p>
+
+    <h2>4. With more time</h2>
+    <p>
+      <strong>Immediately:</strong> rate limiting on the decision endpoints (Redis is already in the
+      stack for BullMQ, so this is small — cut only to keep scope honest); idempotency keys on
+      intake, since the decision is idempotent but the application create is not; authentication and
+      per-applicant authorisation, as every endpoint is currently public; and money stored as minor
+      units in <code>BIGINT</code> rather than <code>NUMERIC</code> converted at the edge.
+    </p>
+    <p>
+      <strong>Next:</strong> real signals — a bureau pull, GST filing history, and bank-statement
+      analysis for verified revenue and existing obligations. That is what turns a plausible
+      scorecard into a usable one. Then risk-based pricing, replacing the flat 18% with a rate
+      priced off the risk band so rate and score are solved together rather than one assumed to
+      compute the other. Then a counter-offer engine: <code>findMaxApprovableAmount()</code> already
+      binary-searches the engine itself rather than inverting the scorecard by hand, so it cannot
+      drift when thresholds change — turning a decline into <em>"₹8L over 24 months would be
+      approved"</em> is mostly UI work from here, and converts rejections into offers.
+    </p>
+    <p>
+      <strong>Structurally:</strong> champion/challenger scorecard versioning — decisions already
+      carry <code>engineVersion</code>, so the next step is running a candidate in shadow against
+      live traffic and backtesting a retune before it decides a real application. Alongside that,
+      calibrating every threshold against observed default rates rather than first principles;
+      <code>config/scoring.ts</code> is structured so that is a data change, not a rewrite. Reason
+      codes and the full scoring trace are already persisted, so generating a regulator-facing
+      adverse-action notice is the remaining piece.
+    </p>
+
+    <footer>
+      131 tests passing · engine v1.0.0 · Node · Express · Postgres (Drizzle) · MongoDB · Redis
+      (BullMQ) · React · Vite · TypeScript throughout
+    </footer>
+  </body>
+</html>
