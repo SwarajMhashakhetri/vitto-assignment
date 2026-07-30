@@ -145,5 +145,12 @@ export interface ApiError {
     message: string;
     details: ApiFieldError[];
     requestId: string;
+    /**
+     * Present on 409 only. Identifies the record the request collided with, so
+     * a client can recover — e.g. a repeat borrower whose PAN already exists
+     * gets back the existing business id and can update it rather than
+     * starting over.
+     */
+    conflict?: Record<string, unknown>;
   };
 }

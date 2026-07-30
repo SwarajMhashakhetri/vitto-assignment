@@ -13,41 +13,76 @@ import {
  * accept something the server rejects.
  */
 
-/**
- * Money and counts arrive from JSON forms as strings often enough that a bare
- * `z.number()` produces a confusing "expected number, received string" for a
- * user who typed a perfectly good figure. So we accept a numeric string but
- * reject anything that is not fully numeric — `"50000"` passes, `"50,000"` and
- * `"abc"` do not. This is deliberate: silently stripping commas would let
- * `"1,0,0"` through as 100.
- */
-const numericInput = (fieldLabel: string) =>
-  z
-    .union([z.number(), z.string()])
-    .transform((value, ctx) => {
-      if (typeof value === 'number') return value;
+/** ₹12,34,567 — Indian lakh/crore digit grouping. */
+const inr = (amount: number): string => `₹${amount.toLocaleString('en-IN')}`;
 
-      const trimmed = value.trim();
-      if (trimmed === '') {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${fieldLabel} is required` });
-        return z.NEVER;
-      }
-      // Number('') is 0 and Number(' ') is 0, both already handled above.
-      const parsed = Number(trimmed);
-      if (!Number.isFinite(parsed)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `${fieldLabel} must be a number`,
-        });
-        return z.NEVER;
-      }
-      return parsed;
+interface NumericFieldOptions {
+  min: number;
+  max: number;
+  /** Reject fractional values, e.g. a tenure of 12.5 months. */
+  integer?: boolean;
+  /** How bounds are rendered in messages. Amounts use ₹; counts do not. */
+  format?: (value: number) => string;
+}
+
+/**
+ * A bounded numeric field.
+ *
+ * Two decisions worth naming:
+ *
+ * 1. **Numeric strings are accepted, lenient parsing is not.** JSON form
+ *    submissions send `"50000"` often enough that a bare `z.number()` would
+ *    reject perfectly good input. But `"50,000"` is an error rather than a
+ *    silent reinterpretation — stripping separators would also let `"1,0,0"`
+ *    through as 100, turning a typo into a plausible wrong number.
+ *
+ * 2. **One message per field, not a cascade.** Checks run in order inside a
+ *    single transform and stop at the first failure, so `"abc"` reports only
+ *    "must be a number" instead of also complaining that it is below the
+ *    minimum and not greater than zero. Chained `.refine()` calls all run
+ *    against the failed value and produce exactly that noise.
+ */
+const numericField = (fieldLabel: string, options: NumericFieldOptions) => {
+  const format = options.format ?? inr;
+
+  return z
+    .union([z.number(), z.string()], {
+      required_error: `${fieldLabel} is required`,
+      invalid_type_error: `${fieldLabel} must be a number`,
     })
-    .pipe(
-      z
-        .number({ invalid_type_error: `${fieldLabel} must be a number` })
-        .finite(`${fieldLabel} must be a finite number`),
-    );
+    .transform((value, ctx): number => {
+      const fail = (message: string) => {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+        return z.NEVER;
+      };
+
+      let parsed: number;
+
+      if (typeof value === 'number') {
+        parsed = value;
+      } else {
+        const trimmed = value.trim();
+        // Number('') and Number(' ') are both 0, so empty input must be
+        // caught before parsing or it silently becomes zero.
+        if (trimmed === '') return fail(`${fieldLabel} is required`);
+
+        parsed = Number(trimmed);
+      }
+
+      // Covers NaN from an unparseable string, and Infinity from either source.
+      if (!Number.isFinite(parsed)) return fail(`${fieldLabel} must be a number`);
+      if (options.integer && !Number.isInteger(parsed)) {
+        return fail(`${fieldLabel} must be a whole number`);
+      }
+      if (parsed <= 0) return fail(`${fieldLabel} must be greater than zero`);
+      if (parsed < options.min) return fail(`${fieldLabel} must be at least ${format(options.min)}`);
+      if (parsed > options.max) {
+        return fail(`${fieldLabel} must not exceed ${format(options.max)}`);
+      }
+
+      return parsed;
+    });
+};
 
 /**
  * PAN check in two stages so the message tells the applicant what to fix:
@@ -77,40 +112,24 @@ export const createBusinessSchema = z.object({
   businessType: z.enum(BUSINESS_TYPES, {
     errorMap: () => ({ message: `Business type must be one of: ${BUSINESS_TYPES.join(', ')}` }),
   }),
-  monthlyRevenue: numericInput('Monthly revenue')
-    .refine((n) => n > 0, 'Monthly revenue must be greater than zero')
-    .refine(
-      (n) => n >= INPUT_LIMITS.MIN_MONTHLY_REVENUE,
-      `Monthly revenue must be at least ₹${INPUT_LIMITS.MIN_MONTHLY_REVENUE.toLocaleString('en-IN')}`,
-    )
-    .refine(
-      (n) => n <= INPUT_LIMITS.MAX_MONTHLY_REVENUE,
-      `Monthly revenue must not exceed ₹${INPUT_LIMITS.MAX_MONTHLY_REVENUE.toLocaleString('en-IN')}`,
-    ),
+  monthlyRevenue: numericField('Monthly revenue', {
+    min: INPUT_LIMITS.MIN_MONTHLY_REVENUE,
+    max: INPUT_LIMITS.MAX_MONTHLY_REVENUE,
+  }),
 });
 
 export const createApplicationSchema = z.object({
   businessId: z.string({ required_error: 'businessId is required' }).uuid('businessId must be a UUID'),
-  requestedAmount: numericInput('Requested amount')
-    .refine((n) => n > 0, 'Requested amount must be greater than zero')
-    .refine(
-      (n) => n >= INPUT_LIMITS.MIN_LOAN_AMOUNT,
-      `Requested amount must be at least ₹${INPUT_LIMITS.MIN_LOAN_AMOUNT.toLocaleString('en-IN')}`,
-    )
-    .refine(
-      (n) => n <= INPUT_LIMITS.MAX_LOAN_AMOUNT,
-      `Requested amount must not exceed ₹${INPUT_LIMITS.MAX_LOAN_AMOUNT.toLocaleString('en-IN')}`,
-    ),
-  tenureMonths: numericInput('Tenure')
-    .refine((n) => Number.isInteger(n), 'Tenure must be a whole number of months')
-    .refine(
-      (n) => n >= INPUT_LIMITS.MIN_TENURE_MONTHS,
-      `Tenure must be at least ${INPUT_LIMITS.MIN_TENURE_MONTHS} month`,
-    )
-    .refine(
-      (n) => n <= INPUT_LIMITS.MAX_TENURE_MONTHS,
-      `Tenure must not exceed ${INPUT_LIMITS.MAX_TENURE_MONTHS} months`,
-    ),
+  requestedAmount: numericField('Requested amount', {
+    min: INPUT_LIMITS.MIN_LOAN_AMOUNT,
+    max: INPUT_LIMITS.MAX_LOAN_AMOUNT,
+  }),
+  tenureMonths: numericField('Tenure', {
+    min: INPUT_LIMITS.MIN_TENURE_MONTHS,
+    max: INPUT_LIMITS.MAX_TENURE_MONTHS,
+    integer: true,
+    format: (value) => `${value} months`,
+  }),
   purpose: z.enum(LOAN_PURPOSES, {
     errorMap: () => ({ message: `Purpose must be one of: ${LOAN_PURPOSES.join(', ')}` }),
   }),
