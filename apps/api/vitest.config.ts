@@ -12,9 +12,30 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.spec.ts'],
-    // Integration tests share one Postgres database, so files must not run
-    // concurrently against each other. Engine tests are pure and unaffected.
+    /**
+     * Integration tests truncate and repopulate one shared Postgres database,
+     * so test *files* must not run concurrently. Engine tests are pure and
+     * unaffected by this.
+     */
     fileParallelism: false,
     testTimeout: 20_000,
+    env: {
+      NODE_ENV: 'test',
+      // Matches docker-compose. Override by exporting these before `npm test`.
+      DATABASE_URL:
+        process.env.TEST_DATABASE_URL ?? 'postgresql://lds:lds_password@localhost:5433/lending',
+      MONGO_URL: process.env.TEST_MONGO_URL ?? 'mongodb://localhost:27017/lending_audit_test',
+      REDIS_URL: process.env.TEST_REDIS_URL ?? 'redis://localhost:6379',
+      /**
+       * Inline rather than queued: the test suite exercises the same service
+       * function the worker calls, behind the same 202-then-poll contract, but
+       * without needing Redis or a second process. The queue path itself is
+       * verified by running the stack under docker-compose.
+       */
+      DECISION_MODE: 'inline',
+      // No artificial delay in tests; it exists only to make the UI's polling
+      // visible during a demo.
+      DECISION_PROCESSING_DELAY_MS: '0',
+    },
   },
 });
