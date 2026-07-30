@@ -77,6 +77,17 @@ export const INPUT_LIMITS = {
 export const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
 /** 4th character of a PAN: the type of the holder. */
+/**
+ * Nominal annual rate used to estimate instalments, representative of
+ * unsecured MSME lending in India (typically 16–24%).
+ *
+ * Shared rather than server-only because the client quotes it to the applicant
+ * alongside the estimated EMI — it is disclosed information, not policy the
+ * borrower should not see. The engine re-exports it from config/scoring.ts so
+ * the credit policy still reads as one document.
+ */
+export const ANNUAL_INTEREST_RATE_PCT = 18;
+
 export const PAN_HOLDER_TYPES: Record<string, string> = {
   P: 'Individual',
   C: 'Company',

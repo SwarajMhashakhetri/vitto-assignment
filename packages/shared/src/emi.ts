@@ -1,6 +1,11 @@
 /**
- * Loan amortisation maths. Pure, dependency-free, and separated from the
- * scorecard so it can be tested against any standard EMI calculator.
+ * Loan amortisation maths.
+ *
+ * Lives in the shared package, not the engine, because the web client shows a
+ * live estimated instalment while the user types. Both sides calling the same
+ * function is what guarantees the figure on the form is exactly the figure the
+ * engine scores — a discrepancy there would be the kind of bug an applicant
+ * notices and no test catches.
  */
 
 /** Round to paise. Avoids 4999.999999999999 leaking into responses. */

@@ -49,12 +49,16 @@ export const APPROVAL_THRESHOLD = 650;
  * A flat 18% p.a. nominal rate, representative of unsecured MSME lending in
  * India (typically 16–24% depending on the lender and the borrower's profile).
  *
+ * Defined in the shared package because the web client quotes it to the
+ * applicant, and re-exported here so this file still reads as the complete
+ * credit policy.
+ *
  * Known simplification: a real engine prices the rate off the very risk band it
  * is computing, so rate and score are mutually dependent and solved together.
  * Holding the rate flat breaks that circularity, at the cost of over-stating
  * affordability for weak applicants and under-stating it for strong ones.
  */
-export const ANNUAL_INTEREST_RATE_PCT = 18;
+export { ANNUAL_INTEREST_RATE_PCT } from '@lds/shared';
 
 /* -------------------------------------------------------------------------- */
 /* Hard rules — evaluated before scoring, and short-circuit it entirely       */

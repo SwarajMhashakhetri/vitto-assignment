@@ -6,7 +6,7 @@ import {
   evaluate,
   findMaxApprovableAmount,
 } from '../src/engine';
-import { calculateEmi } from '../src/engine/emi';
+import { calculateEmi } from '@lds/shared';
 import { ANNUAL_INTEREST_RATE_PCT, ENGINE_VERSION } from '../src/config/scoring';
 import type { EvaluationInput } from '../src/engine/types';
 import type { ReasonCode } from '@lds/shared';

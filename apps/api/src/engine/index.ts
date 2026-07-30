@@ -1,11 +1,11 @@
 import type { DecisionReason, DecisionResult, DerivedMetrics, ScoreFactor } from '@lds/shared';
+import { calculateEmi, calculateTotalRepayable } from '@lds/shared';
 import {
   ANNUAL_INTEREST_RATE_PCT,
   APPROVAL_THRESHOLD,
   ENGINE_VERSION,
   SCORE_RANGE,
 } from '../config/scoring';
-import { calculateEmi, calculateTotalRepayable } from './emi';
 import { formatInr, reason } from './reason-codes';
 import { FACTORS } from './rules/factors';
 import { evaluateHardRules } from './rules/hard-rules';

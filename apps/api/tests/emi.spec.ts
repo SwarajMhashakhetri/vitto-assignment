@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateEmi, calculateTotalRepayable } from '../src/engine/emi';
+import { calculateEmi, calculateTotalRepayable } from '@lds/shared';
 
 describe('calculateEmi', () => {
   /**
