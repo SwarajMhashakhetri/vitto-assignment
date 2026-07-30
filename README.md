@@ -73,7 +73,15 @@ npm run dev:web               # terminal 3 — Vite on :5173
 
 > **Note on the Postgres port.** `docker-compose.yml` maps Postgres to host port **5433**, not the default 5432, so it does not collide with a Postgres you may already be running. `.env.example` matches.
 
-> **Running the API without Redis.** Set `DECISION_MODE=inline` and decisions are processed in the API process instead of being queued. The `202`-then-poll contract is unchanged — the same service function runs, just in-process. This is how the test suite runs; it is not for production.
+> **Decision processing modes.** `DECISION_MODE` selects how decisions are executed. All three keep the identical public contract — `POST` returns `202`, the client polls until the status settles — so switching between them never changes what a client sees.
+>
+> | Mode | Behaviour | Used by |
+> | --- | --- | --- |
+> | `queue` | Enqueue to BullMQ; a **separate worker process** consumes it | docker-compose, paid hosting |
+> | `embedded` | Enqueue to BullMQ; the worker runs **inside the API process** | Render free tier (no background workers on that plan) |
+> | `inline` | No Redis — evaluate synchronously behind the same contract | Test suite, or running with only Postgres |
+>
+> `queue` is the right topology: the API and worker scale independently, and a slow evaluation cannot touch the API's event loop. `embedded` keeps the real queue with its retries and backoff and gives up only the process isolation.
 
 ### Environment variables
 
@@ -84,7 +92,8 @@ npm run dev:web               # terminal 3 — Vite on :5173
 | `MONGO_URL` | — | MongoDB connection string (required) |
 | `REDIS_URL` | — | Redis connection string (required) |
 | `CORS_ORIGIN` | `http://localhost:5173` | Comma-separated allowlist of browser origins |
-| `DECISION_MODE` | `queue` | `queue` (BullMQ worker) or `inline` (in-process) |
+| `DECISION_MODE` | `queue` | `queue`, `embedded` or `inline` — see below |
+| `NODE_VERSION` | — | Pinned to `22` on Render so a platform default cannot break the build |
 | `DECISION_PROCESSING_DELAY_MS` | `1200` | Artificial worker delay so the polling flow is visible in a demo. Set `0` in production |
 | `VITE_API_URL` | `http://localhost:4000` | API base URL, baked into the client bundle at build time |
 
@@ -587,7 +596,7 @@ Stated plainly, because most of these are the first things a production system w
 
 ### Backend — Render
 
-The repository includes [`render.yaml`](render.yaml), a Blueprint that provisions the API, the decision worker, Postgres and Redis in one apply.
+The repository includes [`render.yaml`](render.yaml), a Blueprint that provisions the API, Postgres and Redis in one apply.
 
 1. In Render, choose **New → Blueprint** and point it at this repository.
 2. After the first apply, set two variables in the dashboard (both marked `sync: false` because they are external or environment-specific):
@@ -596,7 +605,9 @@ The repository includes [`render.yaml`](render.yaml), a Blueprint that provision
 
 Migrations run automatically before the API binds its port, so an instance never starts against a schema that does not match its code.
 
-The API and worker deliberately run the **same image with different start commands** — they share all their code, and building twice would only create an opportunity to drift.
+**Why there is no separate worker service.** Render's free plan does not offer background workers at all, so the API runs with `DECISION_MODE=embedded` and hosts the BullMQ worker in-process. The queue, the retries and the backoff are all real — only the process isolation is given up.
+
+To split it back out on a paid plan, add a worker service running `node apps/api/dist/worker-entry.js` and set `DECISION_MODE=queue` on both services. No application code changes; `worker-entry.ts` already exists and is what docker-compose uses.
 
 ### Frontend — Vercel
 
