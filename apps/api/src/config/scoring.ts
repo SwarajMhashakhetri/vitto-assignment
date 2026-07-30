@@ -26,11 +26,19 @@ export const SCORE_RANGE = {
   MIN: 300,
   MAX: 900,
   /**
-   * Every application starts here and is moved by the factors below. 550 sits
-   * below the approval threshold on purpose: an applicant must earn approval
-   * through positive signals rather than merely avoiding negative ones.
+   * Every application starts here and is moved by the factors below. The base
+   * sits well below the approval threshold on purpose: an applicant must earn
+   * approval through positive signals rather than merely avoiding negative
+   * ones.
+   *
+   * 500 specifically, because the factors below sum to at most +400
+   * (150 + 90 + 60 + 80 + 20). That puts the theoretical maximum at exactly
+   * 900 — the top of the scale — so clamping only ever bites at the true
+   * ceiling. A higher base would compress every strong application into a
+   * clamped 900 and throw away the engine's ability to tell a good file from
+   * an excellent one.
    */
-  BASE: 550,
+  BASE: 500,
 } as const;
 
 /**
