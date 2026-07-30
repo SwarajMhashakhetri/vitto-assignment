@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "cd ../.. && npm run build --workspace @lds/web",
   "outputDirectory": "dist",
-  "installCommand": "cd ../.. && npm ci",
+  "installCommand": "cd ../.. && npm ci --include=dev",
   "framework": "vite",
   "rewrites": [
     {

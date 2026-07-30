@@ -17,7 +17,11 @@ COPY packages/shared/package.json packages/shared/
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 
-RUN npm ci
+# --include=dev explicitly: TypeScript and the @types packages are
+# devDependencies, and npm omits those whenever NODE_ENV=production is set in
+# the environment. Being explicit means the build does not depend on what the
+# base image happens to have set.
+RUN npm ci --include=dev
 
 COPY packages/shared packages/shared
 COPY apps/api apps/api

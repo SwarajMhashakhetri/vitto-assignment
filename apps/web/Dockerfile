@@ -11,7 +11,9 @@ COPY packages/shared/package.json packages/shared/
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 
-RUN npm ci
+# See apps/api/Dockerfile — Vite and TypeScript are devDependencies, which npm
+# omits under NODE_ENV=production.
+RUN npm ci --include=dev
 
 COPY packages/shared packages/shared
 COPY apps/web apps/web
