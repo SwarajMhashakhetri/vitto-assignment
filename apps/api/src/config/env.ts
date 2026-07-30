@@ -31,16 +31,26 @@ const envSchema = z.object({
   DECISION_PROCESSING_DELAY_MS: z.coerce.number().int().min(0).max(10_000).default(1_200),
 
   /**
-   * How decisions get processed.
+   * How decisions get processed. All three modes keep the same public
+   * contract — POST returns 202, the client polls until the status settles —
+   * so switching between them never changes what a client sees.
    *
-   *  - `queue`   — the real path: enqueue to BullMQ, a separate worker process
-   *                consumes it. Requires Redis.
-   *  - `inline`  — process in the API process immediately after enqueueing,
-   *                still through the same service function and still behind the
+   *  - `queue`     Enqueue to BullMQ; a *separate* worker process consumes it.
+   *                The right topology: API and worker scale independently and
+   *                a slow evaluation cannot touch the API's event loop.
+   *                Used by docker-compose.
+   *
+   *  - `embedded`  Enqueue to BullMQ and run the worker inside this process.
+   *                Still a real queue with real retries and backoff, just
+   *                co-located. Exists because Render's free plan does not
+   *                offer background workers; it is also a reasonable topology
+   *                for genuinely low volume.
+   *
+   *  - `inline`    No Redis at all — evaluate synchronously behind the same
    *                202-then-poll contract. Lets the API and the test suite run
-   *                without Redis. Not for production use.
+   *                with only Postgres. Not for production.
    */
-  DECISION_MODE: z.enum(['queue', 'inline']).default('queue'),
+  DECISION_MODE: z.enum(['queue', 'embedded', 'inline']).default('queue'),
 });
 
 function loadEnv() {

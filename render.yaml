@@ -1,12 +1,17 @@
 # Render Blueprint.
 #
-# Provisions the API, the decision worker, Postgres and Redis in one apply.
-# The two services run the same image with different start commands, so their
-# code cannot drift apart.
+# Provisions the API, Postgres and a Redis (Key Value) instance.
 #
-# MongoDB is not here: Render has no managed MongoDB. Set MONGO_URL to an
-# Atlas connection string in the dashboard after the first apply. The audit
-# trail is best-effort, so the API starts and serves decisions without it.
+# There is deliberately no `type: worker` service here: Render's free plan does
+# not offer background workers. Instead the API runs with
+# DECISION_MODE=embedded, which hosts the BullMQ worker inside the API process
+# — a real queue with real retries and backoff, just sharing an event loop.
+# On a paid plan, split it back out by adding a worker service running
+# `node dist/worker-entry.js` and setting DECISION_MODE=queue on both.
+#
+# MongoDB is not here either: Render has no managed MongoDB. Set MONGO_URL to
+# an Atlas connection string in the dashboard. The audit trail is best-effort,
+# so the API serves decisions without it.
 
 services:
   - type: web
@@ -14,14 +19,21 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm ci && npm run build --workspace @lds/shared && npm run build --workspace @lds/api
+    # Install only the API's dependency tree. Pulling in the web client's
+    # toolchain (Vite, React) as well risks exhausting the free tier's build
+    # memory for packages the server never loads.
+    buildCommand: npm ci --workspace @lds/api --include-workspace-root && npm run build --workspace @lds/shared && npm run build --workspace @lds/api
     # Migrations run before the server binds, so an instance never starts
     # against a schema that does not match its code.
-    startCommand: cd apps/api && node dist/db/migrate.js && node dist/server.js
+    startCommand: node apps/api/dist/db/migrate.js && node apps/api/dist/server.js
     healthCheckPath: /healthz
     envVars:
       - key: NODE_ENV
         value: production
+      # Pinned: Render's default Node version changes over time, and the build
+      # should not start failing because of a platform default moving.
+      - key: NODE_VERSION
+        value: '22'
       - key: DATABASE_URL
         fromDatabase:
           name: lending-postgres
@@ -31,43 +43,17 @@ services:
           type: redis
           name: lending-redis
           property: connectionString
-      # Set manually: MongoDB Atlas connection string.
+      # Set manually in the dashboard: MongoDB Atlas connection string.
       - key: MONGO_URL
         sync: false
       # Set manually to the deployed frontend origin, e.g.
-      # https://lending-decision-system.vercel.app
+      # https://vitto-assignment.vercel.app
       - key: CORS_ORIGIN
         sync: false
       - key: DECISION_MODE
-        value: queue
+        value: embedded
       # No artificial delay in production; it exists only to make the polling
       # flow visible during a local demo.
-      - key: DECISION_PROCESSING_DELAY_MS
-        value: '0'
-
-  - type: worker
-    name: lending-worker
-    runtime: node
-    plan: free
-    region: singapore
-    buildCommand: npm ci && npm run build --workspace @lds/shared && npm run build --workspace @lds/api
-    startCommand: cd apps/api && node dist/worker-entry.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: DATABASE_URL
-        fromDatabase:
-          name: lending-postgres
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: lending-redis
-          property: connectionString
-      - key: MONGO_URL
-        sync: false
-      - key: DECISION_MODE
-        value: queue
       - key: DECISION_PROCESSING_DELAY_MS
         value: '0'
 

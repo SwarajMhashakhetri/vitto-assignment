@@ -113,6 +113,8 @@ export async function requestDecision(
     // which process runs it. See config/env.ts for why this mode exists.
     await processDecision({ applicationId, requestId });
   } else {
+    // `queue` and `embedded` both go through Redis. They differ only in which
+    // process is consuming, which this side does not need to know.
     await enqueueDecisionJob({ applicationId, requestId });
   }
 
