@@ -1,0 +1,24 @@
+{
+  "name": "lending-decision-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "End-to-end lending decision system for MSME loan applications",
+  "workspaces": [
+    "packages/shared",
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @lds/shared && npm run build --workspace @lds/api && npm run build --workspace @lds/web",
+    "dev:api": "npm run dev --workspace @lds/api",
+    "dev:worker": "npm run dev:worker --workspace @lds/api",
+    "dev:web": "npm run dev --workspace @lds/web",
+    "test": "npm run test --workspace @lds/api",
+    "db:migrate": "npm run db:migrate --workspace @lds/api",
+    "db:generate": "npm run db:generate --workspace @lds/api"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
