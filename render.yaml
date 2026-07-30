@@ -19,10 +19,12 @@ services:
     runtime: node
     plan: free
     region: singapore
-    # Install only the API's dependency tree. Pulling in the web client's
-    # toolchain (Vite, React) as well risks exhausting the free tier's build
-    # memory for packages the server never loads.
-    buildCommand: npm ci --workspace @lds/api --include-workspace-root && npm run build --workspace @lds/shared && npm run build --workspace @lds/api
+    # A plain `npm ci` — every workspace, straight from the lockfile.
+    # Scoping this with --workspace skips the other workspaces' devDependencies,
+    # which lets the compiler version drift away from what the lockfile pins.
+    # The whole install is a couple of seconds; determinism is worth more than
+    # the packages it saves.
+    buildCommand: npm ci && npm run build --workspace @lds/shared && npm run build --workspace @lds/api
     # Migrations run before the server binds, so an instance never starts
     # against a schema that does not match its code.
     startCommand: node apps/api/dist/db/migrate.js && node apps/api/dist/server.js

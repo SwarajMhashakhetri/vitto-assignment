@@ -1,8 +1,12 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "node",
+    // node16 rather than the older commonjs/node pairing: TypeScript 6 removed
+    // `moduleResolution: "node"` (node10) entirely, and a build that depends on
+    // a removed option breaks the moment a host resolves a newer compiler.
+    // With no `"type": "module"` in package.json this still emits CommonJS.
+    "module": "node16",
+    "moduleResolution": "node16",
     "lib": ["ES2022"],
     "declaration": true,
     "outDir": "./dist",
