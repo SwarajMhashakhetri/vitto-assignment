@@ -33,6 +33,12 @@ export default defineConfig({
        * verified by running the stack under docker-compose.
        */
       DECISION_MODE: 'inline',
+      /**
+       * Deliberately messy: a stray space and a trailing slash, because that
+       * is what a value pasted into a deployment dashboard actually looks
+       * like. The allowlist tests assert both are tolerated.
+       */
+      CORS_ORIGIN: 'http://localhost:5173, https://lending-demo.vercel.app/',
       // No artificial delay in tests; it exists only to make the UI's polling
       // visible during a demo.
       DECISION_PROCESSING_DELAY_MS: '0',

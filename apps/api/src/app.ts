@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express, { type Express } from 'express';
-import { corsOrigins } from './config/env';
+import { corsOrigins, normalizeOrigin } from './config/env';
+import { logger } from './lib/logger';
 import { errorHandler, notFoundHandler } from './middleware/error-handler';
 import { requestId } from './middleware/request-id';
 import { applicationRouter } from './modules/application/application.routes';
@@ -31,7 +32,31 @@ export function createApp(): Express {
 
   app.use(
     cors({
-      origin: corsOrigins,
+      origin(requestOrigin, callback) {
+        // Same-origin requests, curl, and the platform health check send no
+        // Origin header at all. CORS is a browser policy; there is nothing to
+        // grant or withhold here.
+        if (!requestOrigin) {
+          callback(null, true);
+          return;
+        }
+
+        if (corsOrigins.includes(normalizeOrigin(requestOrigin))) {
+          callback(null, true);
+          return;
+        }
+
+        // A denied origin still gets a 204 preflight, just with no
+        // Access-Control-Allow-Origin header — which the browser reports as a
+        // generic CORS error that says nothing about why. Logging the origin
+        // alongside the configured allowlist turns "CORS is broken" into a
+        // one-line diff a deployer can act on.
+        logger.warn('Blocked a cross-origin request from an origin outside CORS_ORIGIN', {
+          origin: requestOrigin,
+          allowed: corsOrigins,
+        });
+        callback(null, false);
+      },
       // Lets a browser client read the correlation id off the response.
       exposedHeaders: ['X-Request-Id'],
     }),

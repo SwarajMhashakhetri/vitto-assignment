@@ -401,6 +401,44 @@ describe('health checks', () => {
   });
 });
 
+/**
+ * The deployed frontend and API sit on different hosts, so the allowlist is
+ * load-bearing rather than incidental. A rejected origin still produces a 204
+ * preflight — the only observable difference is the missing grant header, so
+ * that header is what these assert on.
+ */
+describe('CORS allowlist', () => {
+  const preflight = (origin: string) =>
+    request(app)
+      .options('/api/v1/businesses')
+      .set('Origin', origin)
+      .set('Access-Control-Request-Method', 'POST');
+
+  it('grants an allowed origin', async () => {
+    const response = await preflight('http://localhost:5173');
+    expect(response.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+  });
+
+  it('tolerates a trailing slash on the incoming origin', async () => {
+    // Browsers never send one, but a value copied from an address bar into a
+    // deployment dashboard does — normalising both sides means that cannot
+    // silently break production.
+    const response = await preflight('https://lending-demo.vercel.app/');
+    expect(response.headers['access-control-allow-origin']).toBeDefined();
+  });
+
+  it('withholds the grant header from an origin outside the allowlist', async () => {
+    const response = await preflight('https://not-the-frontend.example.com');
+    expect(response.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('does not require an Origin header at all', async () => {
+    // curl, server-to-server callers and the platform health check send none.
+    const response = await request(app).get('/healthz');
+    expect(response.status).toBe(200);
+  });
+});
+
 describe('unmatched routes', () => {
   it('uses the standard error envelope for a 404', async () => {
     const response = await request(app).get('/api/v1/does-not-exist');

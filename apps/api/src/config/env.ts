@@ -74,7 +74,20 @@ export const env = loadEnv();
 export const isProduction = env.NODE_ENV === 'production';
 export const isTest = env.NODE_ENV === 'test';
 
+/**
+ * Canonical form of an origin, for comparison only.
+ *
+ * A browser sends `scheme://host[:port]` with no path and no trailing slash,
+ * but the value a human pastes into a dashboard is copied from an address bar
+ * and usually carries one. An allowlist that rejects
+ * `https://example.vercel.app/` while accepting `https://example.vercel.app`
+ * is technically correct and practically a trap: the preflight still answers
+ * 204, just without the grant header, so the browser reports a generic CORS
+ * failure with nothing pointing at the extra character.
+ */
+export function normalizeOrigin(origin: string): string {
+  return origin.trim().replace(/\/+$/, '').toLowerCase();
+}
+
 /** Parsed CORS allowlist. Empty entries from a trailing comma are dropped. */
-export const corsOrigins = env.CORS_ORIGIN.split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+export const corsOrigins = env.CORS_ORIGIN.split(',').map(normalizeOrigin).filter(Boolean);
