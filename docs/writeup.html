@@ -177,7 +177,7 @@ Express API ──────────────────────�
     <p>
       <code>evaluate(input)</code> performs no I/O — no database, no clock, no environment. Three
       things follow. The entire credit policy is testable without infrastructure, which is why 73
-      of the 131 tests run in 58ms and probe <em>both sides</em> of every threshold boundary. Any
+      of the 146 tests run in 28ms and probe <em>both sides</em> of every threshold boundary. Any
       historical decision can be reproduced exactly from its stored inputs. And the same function
       serves the HTTP layer, the queue worker, and the binary search that finds the largest
       approvable amount, unadapted.
@@ -345,7 +345,7 @@ Express API ──────────────────────�
     </p>
 
     <footer>
-      131 tests passing · engine v1.0.0 · Node · Express · Postgres (Drizzle) · MongoDB · Redis
+      146 tests passing · engine v1.0.0 · Node · Express · Postgres (Drizzle) · MongoDB · Redis
       (BullMQ) · React · Vite · TypeScript throughout
     </footer>
   </body>

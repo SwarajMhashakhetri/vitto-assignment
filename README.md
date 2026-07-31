@@ -554,13 +554,14 @@ docker compose up -d postgres mongo redis   # integration tests need real databa
 npm test
 ```
 
-**131 tests**, all passing.
+**146 tests**, all passing.
 
 | Suite | Count | Covers |
 | --- | --- | --- |
 | `engine.spec.ts` | 73 | Every threshold band and **both sides of every boundary** — 0.30 vs 0.3001. Hard rules, clamping, determinism, input immutability, reason ordering |
-| `api.spec.ts` | 44 | Every row of the edge case matrix, envelope consistency, idempotency, the 409 recovery path, NUMERIC round trips |
+| `api.spec.ts` | 48 | Every row of the edge case matrix, envelope consistency, idempotency, the 409 recovery path, NUMERIC round trips, the CORS allowlist |
 | `emi.spec.ts` | 14 | Amortisation against reference values cross-checked with a public EMI calculator, plus zero-rate and single-instalment edges |
+| `config.spec.ts` | 11 | Origin validation and normalisation — a misconfigured allowlist fails at boot rather than on the first browser request |
 
 Integration tests run against the real Postgres rather than a mock. The failures worth catching here are unique constraints, cascades and NUMERIC round trips — none of which a mock reproduces.
 
