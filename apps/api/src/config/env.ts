@@ -9,6 +9,35 @@ import { z } from 'zod';
  * start and says exactly which variable is wrong.
  */
 
+/**
+ * Why an origin is unusable in an allowlist, or `null` if it is fine.
+ *
+ * A browser's `Origin` header is always scheme + host + optional port, and
+ * nothing else. Anything that cannot take that shape can never match a real
+ * request, so it is a configuration error rather than a stricter rule.
+ */
+export function describeInvalidOrigin(entry: string): string | null {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(entry);
+  } catch {
+    return `CORS_ORIGIN entry "${entry}" is not a URL — an origin needs a scheme, e.g. https://${entry}`;
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    // Reached by a bare `host:port`, which URL happily parses with the host
+    // as the protocol. The likeliest paste, and the least obvious failure.
+    return `CORS_ORIGIN entry "${entry}" must start with http:// or https://`;
+  }
+
+  if (parsed.pathname !== '/' || parsed.search !== '' || parsed.hash !== '') {
+    return `CORS_ORIGIN entry "${entry}" must be a bare origin — scheme, host and optional port, with no path`;
+  }
+
+  return null;
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -20,8 +49,23 @@ const envSchema = z.object({
   /**
    * Comma-separated allowlist of browser origins. Defaults to the Vite dev
    * server so a fresh clone works without configuration.
+   *
+   * Validated at boot rather than trusted, because an unmatchable entry is
+   * invisible until a browser tries: the preflight still answers 204, just
+   * without the grant header. Failing here costs one restart; failing lazily
+   * costs an afternoon.
    */
-  CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  CORS_ORIGIN: z
+    .string()
+    .default('http://localhost:5173')
+    .superRefine((value, ctx) => {
+      for (const entry of value.split(',').map((origin) => origin.trim())) {
+        if (entry === '') continue;
+
+        const problem = describeInvalidOrigin(entry);
+        if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+      }
+    }),
 
   /**
    * Artificial delay in the worker, so the 202-then-poll flow is actually

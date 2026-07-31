@@ -91,7 +91,7 @@ npm run dev:web               # terminal 3 — Vite on :5173
 | `DATABASE_URL` | — | Postgres connection string (required) |
 | `MONGO_URL` | — | MongoDB connection string (required) |
 | `REDIS_URL` | — | Redis connection string (required) |
-| `CORS_ORIGIN` | `http://localhost:5173` | Comma-separated allowlist of browser origins. Trailing slashes, whitespace and case are normalised before matching |
+| `CORS_ORIGIN` | `http://localhost:5173` | Comma-separated allowlist of browser origins, each with its scheme. Validated at boot; trailing slashes, whitespace and case are normalised before matching |
 | `DECISION_MODE` | `queue` | `queue`, `embedded` or `inline` — see below |
 | `NODE_VERSION` | — | Pinned to `22` on Render so a platform default cannot break the build |
 | `DECISION_PROCESSING_DELAY_MS` | `1200` | Artificial worker delay so the polling flow is visible in a demo. Set `0` in production |
@@ -601,7 +601,7 @@ The repository includes [`render.yaml`](render.yaml), a Blueprint that provision
 1. In Render, choose **New → Blueprint** and point it at this repository.
 2. After the first apply, set two variables in the dashboard (both marked `sync: false` because they are external or environment-specific):
    - `MONGO_URL` — a MongoDB Atlas connection string. Render has no managed MongoDB, which is why this is not in the Blueprint.
-   - `CORS_ORIGIN` — the deployed frontend origin, scheme included: `https://your-app.vercel.app`. A trailing slash, surrounding whitespace and differing case are all normalised away, so a value pasted straight from the address bar works. Anything else is denied, and the API logs the rejected origin next to the configured allowlist — a browser only reports "CORS error", so the server log is where the answer is.
+   - `CORS_ORIGIN` — the deployed frontend origin, **scheme included**: `https://your-app.vercel.app`, not `your-app.vercel.app`. A browser's `Origin` header always carries the scheme, so a bare host matches nothing. The API refuses to start on a malformed entry and names it, rather than booting into a state where every browser request fails and the preflight still returns 204. Trailing slashes, whitespace and case are normalised away, so a value pasted from the address bar is fine, and a denied origin is logged next to the configured allowlist.
 
 Migrations run automatically before the API binds its port, so an instance never starts against a schema that does not match its code.
 
